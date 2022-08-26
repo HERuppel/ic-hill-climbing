@@ -1,60 +1,73 @@
+import os
+import time
+import warnings
+from random import randint
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.neural_network import MLPClassifier
-np.random.seed(1)
-from sklearn.datasets import fetch_openml
+from sklearn import metrics
+import pandas as pd
+from matplotlib import pyplot
 
-mnist = fetch_openml('mnist_784')
-print(mnist)
-# rescale the data, use the traditional train/test split
-X, y = mnist.data / 255., mnist.target
-X_train, X_test = X[:60000], X[60000:]
-y_train, y_test = y[:60000], y[60000:]
+warnings.filterwarnings('ignore')
 
-mlp = MLPClassifier(hidden_layer_sizes=(50,), max_iter=10, alpha=1e-4,
-                    solver='adam', verbose=0, tol=1e-8, random_state=1,
-                    learning_rate_init=.01)
+def loadData():
+  dataframe = pd.read_csv(
+    filepath_or_buffer=os.path.join(
+      os.path.dirname(__file__), 'sets\dataR2.csv'),
+      header=None,
+      delimiter=","
+  )
 
-""" Home-made mini-batch learning
-    -> not to be used in out-of-core setting!
-"""
-N_TRAIN_SAMPLES = X_train.shape[0]
-N_EPOCHS = 25
-N_BATCH = 128
-N_CLASSES = np.unique(y_train)
+  data = dataframe.values
 
-scores_train = []
-scores_test = []
+  return data[:, :-1], data[:, -1]
 
-# EPOCH
-epoch = 0
-while epoch < N_EPOCHS:
-    print('epoch: ', epoch)
-    # SHUFFLING
-    random_perm = np.random.permutation(X_train.shape[0])
-    mini_batch_index = 0
-    while True:
-        # MINI-BATCH
-        indices = random_perm[mini_batch_index:mini_batch_index + N_BATCH]
-        mlp.partial_fit(X_train[indices], y_train[indices], classes=N_CLASSES)
-        mini_batch_index += N_BATCH
+def evalPrediction(Y, candidate):
+	return metrics.accuracy_score(Y, candidate)
 
-        if mini_batch_index >= N_TRAIN_SAMPLES:
-            break
+def randPredictions(numExamples):
+	return [randint(0, 1) for _ in range(numExamples)]
 
-    # SCORE TRAIN
-    scores_train.append(mlp.score(X_train, y_train))
+def modifyPredictions(currentSolution, numChanges=1):
+	updated = currentSolution.copy()
+	for _ in range(numChanges):
+		ix = randint(0, len(updated) - 1)
+		updated[ix] = 1 - updated[ix]
+	return updated
 
-    # SCORE TEST
-    scores_test.append(mlp.score(X_test, y_test))
+def classification_hillclimbing(X, Y):
+    bestAccuracy = -np.inf
+    bestI = -1
+    bestJ = -1
+    scores = list()
+    solution = randPredictions(X.shape[0])
+    score = evalPrediction(Y, solution)
 
-    epoch += 1
+    for i in range(2, 15): 
+      print("Testando {}".format("." * i))
+      for j in range(0, 10):
+        hiddenLayerSizes = (i) if j < 2 else (i, j)
+        clf = MLPClassifier(solver='lbfgs', max_iter=30000, alpha=1e-5, hidden_layer_sizes=hiddenLayerSizes, random_state=int(time.time()))
+        clf.fit(X, Y)
 
-""" Plot """
-fig, ax = plt.subplots(2, sharex=True, sharey=True)
-ax[0].plot(scores_train)
-ax[0].set_title('Train')
-ax[1].plot(scores_test)
-ax[1].set_title('Test')
-fig.suptitle("Accuracy over epochs", fontsize=14)
-plt.show()
+        candidate = modifyPredictions(solution)
+        value = evalPrediction(Y, candidate)
+        if value >= score:
+          solution, score = candidate, value
+          bestAccuracy = value
+          bestI = i
+          bestJ = j
+        scores.append(score)
+    return bestAccuracy, bestI, bestJ, scores
+
+
+X, Y = loadData()
+bestAccuracy, bestI, bestJ, scores = classification_hillclimbing(X, Y)
+
+print("Melhor acurácia: {}%".format(round(bestAccuracy * 100, 2)))
+print("Nodos do melhor resultado - 1ª Camada: {} | 2ª Camada: {} ".format(bestI, bestJ))
+pyplot.title('Acurácia a cada iteração')
+pyplot.xlabel('Iterações')
+pyplot.ylabel('Acurácia')
+pyplot.plot(scores)
+pyplot.show()
